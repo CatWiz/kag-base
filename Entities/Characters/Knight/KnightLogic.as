@@ -444,6 +444,8 @@ class NormalState : KnightState
 	void StateEntered(CBlob@ this, KnightInfo@ knight, u8 previous_state)
 	{
 		knight.swordTimer = 0;
+		this.set_u8("swordSheathPlayed", 0);
+		this.set_u8("animeSwordPlayed", 0);
 	}
 
 	bool TickState(CBlob@ this, KnightInfo@ knight, RunnerMoveVars@ moveVars)
@@ -750,6 +752,8 @@ class SwordDrawnState : KnightState
 	void StateEntered(CBlob@ this, KnightInfo@ knight, u8 previous_state)
 	{
 		knight.swordTimer = 0;
+		this.set_u8("swordSheathPlayed", 0);
+		this.set_u8("animeSwordPlayed", 0);
 	}
 
 	bool TickState(CBlob@ this, KnightInfo@ knight, RunnerMoveVars@ moveVars)
@@ -769,10 +773,13 @@ class SwordDrawnState : KnightState
 			if (knight.swordTimer == KnightVars::slash_charge_level2)
 			{
 				Sound::Play("AnimeSword.ogg", pos, myplayer ? 1.3f : 0.7f);
+				this.set_u8("animeSwordPlayed", 1);
+
 			}
 			else if (knight.swordTimer == KnightVars::slash_charge)
 			{
 				Sound::Play("SwordSheath.ogg", pos, myplayer ? 1.3f : 0.7f);
+				this.set_u8("swordSheathPlayed",  1);
 			}
 		}
 
@@ -911,6 +918,24 @@ class SlashState : KnightState
 
 		}
 
+		if (getNet().isClient())
+		{
+			const bool myplayer = this.isMyPlayer();
+			Vec2f pos = this.getPosition();
+			if (knight.state == KnightStates::sword_power_super && this.get_u8("animeSwordPlayed") == 0)
+			{
+				Sound::Play("AnimeSword.ogg", pos, myplayer ? 1.3f : 0.7f);
+				this.set_u8("animeSwordPlayed", 1);
+				this.set_u8("swordSheathPlayed", 1);
+
+			}
+			else if (knight.state == KnightStates::sword_power && this.get_u8("swordSheathPlayed") == 0)
+			{
+				Sound::Play("SwordSheath.ogg", pos, myplayer ? 1.3f : 0.7f);
+				this.set_u8("swordSheathPlayed",  1);
+			}
+		}
+
 		this.Tag("prevent crouch");
 
 		AttackMovement(this, knight, moveVars);
@@ -975,6 +1000,8 @@ class ResheathState : KnightState
 	void StateEntered(CBlob@ this, KnightInfo@ knight, u8 previous_state)
 	{
 		knight.swordTimer = 0;
+		this.set_u8("swordSheathPlayed", 0);
+		this.set_u8("animeSwordPlayed", 0);
 	}
 
 	bool TickState(CBlob@ this, KnightInfo@ knight, RunnerMoveVars@ moveVars)
@@ -1171,41 +1198,28 @@ void DoAttack(CBlob@ this, f32 damage, f32 aimangle, f32 arcdegrees, u8 type, in
 		{
 			HitInfo@ hi = hitInfos[i];
 			CBlob@ b = hi.blob;
-			if (b !is null && !dontHitMore) // blob
+			if (b !is null)
 			{
 				if (b.hasTag("ignore sword")) continue;
 
-				//big things block attacks
-				const bool large = b.hasTag("blocks sword") && !b.isAttached() && b.isCollidable();
-
 				if (!canHit(this, b))
 				{
-					// no TK
-					if (large)
-						dontHitMore = true;
-
 					continue;
 				}
 
 				if (knight_has_hit_actor(this, b))
 				{
-					if (large)
-						dontHitMore = true;
-
 					continue;
 				}
 
 				knight_add_actor_limit(this, b);
-				if (!dontHitMore)
+				Vec2f rcast_pos;
+				bool rcast = (!map.rayCastSolid(pos, hi.hitpos, rcast_pos));
+
+				if (rcast || (rcast_pos - hi.hitpos).Length() <= 1.2f) // length check is needed because otherwise slashing doors below you becomes very inconsistent for some reason
 				{
 					Vec2f velocity = b.getPosition() - pos;
 					this.server_Hit(b, hi.hitpos, velocity, damage, type, true);  // server_Hit() is server-side only
-
-					// end hitting if we hit something solid, don't if its flesh
-					if (large)
-					{
-						dontHitMore = true;
-					}
 				}
 			}
 			else  // hitmap
@@ -1523,7 +1537,6 @@ void onAttach(CBlob@ this, CBlob@ attached, AttachmentPoint @ap)
 		knight.state = KnightStates::normal; //cancel any attacks or shielding
 		knight.swordTimer = 0;
 		knight.doubleslash = false;
-		this.set_s32("currentKnightState", 0);
 	}
 }
 
