@@ -1186,10 +1186,33 @@ void DoAttack(CBlob@ this, f32 damage, f32 aimangle, f32 arcdegrees, u8 type, in
 				}
 
 				knight_add_actor_limit(this, b);
-				Vec2f rcast_pos;
-				bool rcast = (!map.rayCastSolid(pos, hi.hitpos, rcast_pos));
+				Vec2f rcast_pos = hi.hitpos - pos;
+				HitInfo@[] hinfos;
+				bool hit = false;
 
-				if (rcast || (rcast_pos - hi.hitpos).Length() <= 1.2f) // length check is needed because otherwise slashing doors below you becomes very inconsistent for some reason
+				// we use getHitInfosFromRay instead of rayCastSolid because we need to ignore platforms
+				// length of raycast is increased by 1 so doors get caught in the ray
+				if (map.getHitInfosFromRay(pos, -rcast_pos.AngleDegrees(), rcast_pos.Length()+1.0f, this, hinfos))
+				{
+					for (int i = 0; i < hinfos.size(); i++)
+					{
+						HitInfo@ hinfo = hinfos[i];
+						CBlob@ blob = hinfo.blob;
+
+						if (blob !is null && blob !is this && b !is blob && blob.isCollidable() && blob.getShape().isStatic() && !blob.isPlatform())
+						{
+							hit = false;
+							break;
+						}
+
+						if (b is blob)
+						{
+							hit = true;
+						}
+					}
+				}
+				
+				if (hit)
 				{
 					Vec2f velocity = b.getPosition() - pos;
 					this.server_Hit(b, hi.hitpos, velocity, damage, type, true);  // server_Hit() is server-side only
